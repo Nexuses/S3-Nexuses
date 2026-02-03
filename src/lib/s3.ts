@@ -7,6 +7,7 @@ import {
   PutPublicAccessBlockCommand,
   PutBucketPolicyCommand,
   PutBucketCorsCommand,
+  type BucketLocationConstraint,
 } from "@aws-sdk/client-s3";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 
@@ -59,11 +60,11 @@ export async function createBucket(
     );
   }
 
-  const createParams: { Bucket: string; CreateBucketConfiguration?: { LocationConstraint: string } } = {
+  const createParams: { Bucket: string; CreateBucketConfiguration?: { LocationConstraint: BucketLocationConstraint } } = {
     Bucket: name,
   };
   if (region !== "us-east-1") {
-    createParams.CreateBucketConfiguration = { LocationConstraint: region };
+    createParams.CreateBucketConfiguration = { LocationConstraint: region as BucketLocationConstraint };
   }
   await client.send(new CreateBucketCommand(createParams));
 

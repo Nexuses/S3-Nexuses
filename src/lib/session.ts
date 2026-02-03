@@ -14,7 +14,7 @@ export async function getSession(request: NextRequest) {
       email: token.email,
       role: token.role,
     },
-    expires: token.exp ? new Date(token.exp * 1000).toISOString() : "",
+    expires: token.exp && typeof token.exp === 'number' ? new Date(token.exp * 1000).toISOString() : "",
   };
 }
 
