@@ -17,7 +17,13 @@ export async function POST(request: NextRequest) {
   try {
     const formData = await request.formData();
     const bucket = formData.get("bucket") as string | null;
-    const file = formData.get("file") as File | null;
+    const files = formData
+      .getAll("files")
+      .filter((value): value is File => value instanceof File && value.size > 0);
+    const singleFile = formData.get("file");
+    if (files.length === 0 && singleFile instanceof File && singleFile.size > 0) {
+      files.push(singleFile);
+    }
 
     if (!bucket?.trim()) {
       return NextResponse.json(
@@ -25,28 +31,30 @@ export async function POST(request: NextRequest) {
         { status: 400 }
       );
     }
-    if (!file || file.size === 0) {
+    if (files.length === 0) {
       return NextResponse.json(
-        { error: "Please select a file to upload" },
+        { error: "Please select at least one file to upload" },
         { status: 400 }
       );
     }
 
-    const key = file.name.replace(/[^a-zA-Z0-9._-]/g, "_");
-    const buffer = Buffer.from(await file.arrayBuffer());
-    const contentType = file.type || undefined;
-
-    const { objectUrl, presignedUrl } = await uploadFileAndGetUrl(
-      bucket.trim(),
-      key,
-      buffer,
-      contentType
+    const uploadedFiles = await Promise.all(
+      files.map(async (file) => {
+        const key = file.name.replace(/[^a-zA-Z0-9._-]/g, "_");
+        const buffer = Buffer.from(await file.arrayBuffer());
+        const contentType = file.type || undefined;
+        const { objectUrl, presignedUrl } = await uploadFileAndGetUrl(
+          bucket.trim(),
+          key,
+          buffer,
+          contentType
+        );
+        return { key, objectUrl, presignedUrl };
+      })
     );
 
     return NextResponse.json({
-      objectUrl,
-      presignedUrl,
-      key,
+      files: uploadedFiles,
     });
   } catch (err) {
     const message = err instanceof Error ? err.message : "Upload failed";

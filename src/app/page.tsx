@@ -3,14 +3,18 @@
 import { useEffect, useState } from "react";
 import { signIn, signOut, useSession } from "next-auth/react";
 
+const MAX_FILES = 10;
+
 export default function Home() {
   const { data: session, status } = useSession();
   const [buckets, setBuckets] = useState<string[]>([]);
   const [selectedBucket, setSelectedBucket] = useState("");
-  const [file, setFile] = useState<File | null>(null);
+  const [files, setFiles] = useState<File[]>([]);
   const [loadingBuckets, setLoadingBuckets] = useState(false);
   const [uploading, setUploading] = useState(false);
-  const [objectUrl, setObjectUrl] = useState<string | null>(null);
+  const [uploadedFiles, setUploadedFiles] = useState<
+    Array<{ key: string; objectUrl: string; presignedUrl?: string }>
+  >([]);
   const [error, setError] = useState<string | null>(null);
   const [credentialsMissing, setCredentialsMissing] = useState(false);
   const [newBucketName, setNewBucketName] = useState("");
@@ -94,15 +98,21 @@ export default function Home() {
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
-    if (!selectedBucket || !file) return;
+    if (!selectedBucket || files.length === 0) return;
+    if (files.length > MAX_FILES) {
+      setError(`You can upload a maximum of ${MAX_FILES} files at a time.`);
+      return;
+    }
     setError(null);
     setCredentialsMissing(false);
-    setObjectUrl(null);
+    setUploadedFiles([]);
     setUploading(true);
 
     const formData = new FormData();
     formData.set("bucket", selectedBucket);
-    formData.set("file", file);
+    files.forEach((file) => {
+      formData.append("files", file);
+    });
 
     try {
       const res = await fetch("/api/upload", {
@@ -115,7 +125,7 @@ export default function Home() {
         setCredentialsMissing(data.code === "CREDENTIALS_MISSING");
         throw new Error(data.error ?? "Upload failed");
       }
-      setObjectUrl(data.objectUrl);
+      setUploadedFiles(data.files ?? []);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Upload failed");
     } finally {
@@ -251,7 +261,7 @@ export default function Home() {
         <p className="text-zinc-500 dark:text-zinc-400 text-sm mb-6">
           {isAdmin
             ? "Create new buckets below. Only users can upload files."
-            : "Select a bucket, choose a file, and get the object URL."}
+            : "Select a bucket, choose one or more files, and get object URLs."}
         </p>
 
         {isAdmin && (
@@ -339,14 +349,27 @@ export default function Home() {
               </div>
               <div>
                 <label htmlFor="file" className="block text-sm font-medium text-zinc-700 dark:text-zinc-300 mb-2">
-                  File
+                  Files
                 </label>
                 <input
                   id="file"
                   type="file"
-                  onChange={(e) => setFile(e.target.files?.[0] ?? null)}
+                  multiple
+                  onChange={(e) => {
+                    const selectedFiles = Array.from(e.target.files ?? []);
+                    if (selectedFiles.length > MAX_FILES) {
+                      setError(`You can select up to ${MAX_FILES} files only.`);
+                      setFiles([]);
+                      return;
+                    }
+                    setError(null);
+                    setFiles(selectedFiles);
+                  }}
                   className="w-full text-sm text-zinc-600 dark:text-zinc-400 file:mr-4 file:py-3 file:px-5 file:rounded-xl file:border-0 file:bg-zinc-200 dark:file:bg-zinc-600 file:text-zinc-800 dark:file:text-zinc-200 file:font-medium file:shadow-sm hover:file:bg-zinc-300 dark:hover:file:bg-zinc-500 file:transition-colors cursor-pointer"
                 />
+                <p className="text-xs text-zinc-500 dark:text-zinc-400 mt-1.5">
+                  Maximum {MAX_FILES} files per upload.
+                </p>
               </div>
               {error && (
                 <div
@@ -370,20 +393,32 @@ export default function Home() {
               )}
               <button
                 type="submit"
-                disabled={uploading || !selectedBucket || !file || loadingBuckets}
+                disabled={uploading || !selectedBucket || files.length === 0 || loadingBuckets}
                 className="w-full h-12 rounded-xl bg-zinc-900 dark:bg-zinc-100 text-white dark:text-zinc-900 font-medium hover:bg-zinc-800 dark:hover:bg-zinc-200 shadow-lg shadow-zinc-900/10 disabled:opacity-50 transition-all duration-200"
               >
                 {uploading ? "Uploading…" : "Upload"}
               </button>
             </form>
 
-            {objectUrl && (
+            {uploadedFiles.length > 0 && (
               <div className="mt-6 pt-6 border-t border-zinc-200 dark:border-zinc-700 space-y-3">
-                <h2 className="text-sm font-semibold text-zinc-700 dark:text-zinc-300">Object URL</h2>
-                <div className="rounded-xl bg-zinc-100/80 dark:bg-zinc-800/80 p-4 break-all border border-zinc-200/50 dark:border-zinc-700/50">
-                  <a href={objectUrl} target="_blank" rel="noopener noreferrer" className="text-zinc-800 dark:text-zinc-200 hover:text-zinc-600 dark:hover:text-zinc-400 underline underline-offset-2 text-sm font-medium transition-colors">
-                    {objectUrl}
-                  </a>
+                <h2 className="text-sm font-semibold text-zinc-700 dark:text-zinc-300">Object URLs</h2>
+                <div className="space-y-2">
+                  {uploadedFiles.map((uploadedFile) => (
+                    <div
+                      key={uploadedFile.key}
+                      className="rounded-xl bg-zinc-100/80 dark:bg-zinc-800/80 p-4 break-all border border-zinc-200/50 dark:border-zinc-700/50"
+                    >
+                      <a
+                        href={uploadedFile.objectUrl}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="text-zinc-800 dark:text-zinc-200 hover:text-zinc-600 dark:hover:text-zinc-400 underline underline-offset-2 text-sm font-medium transition-colors"
+                      >
+                        {uploadedFile.objectUrl}
+                      </a>
+                    </div>
+                  ))}
                 </div>
               </div>
             )}
