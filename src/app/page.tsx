@@ -1,15 +1,24 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { signIn, signOut, useSession } from "next-auth/react";
+import { ChevronDown, Trash2 } from "lucide-react";
 
 const MAX_FILES = 10;
+const MAX_FILE_SIZE = 5 * 1024 * 1024; // 5 MB
+
+function splitFilename(name: string): { base: string; ext: string } {
+  const lastDot = name.lastIndexOf(".");
+  if (lastDot > 0) return { base: name.slice(0, lastDot), ext: name.slice(lastDot) };
+  return { base: name, ext: "" };
+}
 
 export default function Home() {
   const { data: session, status } = useSession();
   const [buckets, setBuckets] = useState<string[]>([]);
   const [selectedBucket, setSelectedBucket] = useState("");
   const [files, setFiles] = useState<File[]>([]);
+  const [fileNames, setFileNames] = useState<string[]>([]);
   const [loadingBuckets, setLoadingBuckets] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [uploadedFiles, setUploadedFiles] = useState<
@@ -27,6 +36,13 @@ export default function Home() {
   const [authPassword, setAuthPassword] = useState("");
   const [authLoading, setAuthLoading] = useState(false);
   const [authError, setAuthError] = useState<string | null>(null);
+
+  const [dropdownOpen, setDropdownOpen] = useState(false);
+  const dropdownRef = useRef<HTMLDivElement>(null);
+  const [deleteTarget, setDeleteTarget] = useState<string | null>(null);
+  const [deletePassword, setDeletePassword] = useState("");
+  const [deletingBucket, setDeletingBucket] = useState(false);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
 
   const isAdmin = (session?.user as { role?: string } | undefined)?.role === "admin";
 
@@ -110,8 +126,9 @@ export default function Home() {
 
     const formData = new FormData();
     formData.set("bucket", selectedBucket);
-    files.forEach((file) => {
+    files.forEach((file, i) => {
       formData.append("files", file);
+      formData.append("fileNames", fileNames[i] ?? file.name);
     });
 
     try {
@@ -130,6 +147,39 @@ export default function Home() {
       setError(err instanceof Error ? err.message : "Upload failed");
     } finally {
       setUploading(false);
+    }
+  }
+
+  useEffect(() => {
+    function handleClickOutside(e: MouseEvent) {
+      if (dropdownRef.current && !dropdownRef.current.contains(e.target as Node)) {
+        setDropdownOpen(false);
+      }
+    }
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, []);
+
+  async function handleDeleteBucket() {
+    if (!deleteTarget) return;
+    setDeleteError(null);
+    setDeletingBucket(true);
+    try {
+      const res = await fetch("/api/buckets", {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ bucket: deleteTarget, password: deletePassword }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error ?? "Failed to delete bucket");
+      setDeleteTarget(null);
+      setDeletePassword("");
+      if (selectedBucket === deleteTarget) setSelectedBucket("");
+      await refreshBuckets();
+    } catch (err) {
+      setDeleteError(err instanceof Error ? err.message : "Failed to delete bucket");
+    } finally {
+      setDeletingBucket(false);
     }
   }
 
@@ -233,6 +283,7 @@ export default function Home() {
   }
 
   return (
+    <>
     <div className="min-h-screen flex flex-col items-center justify-center p-6 gap-6">
       <img
         src="https://cdn-nexlink.s3.us-east-2.amazonaws.com/Nexuses-full-logo-dark_8d412ea3-bf11-4fc6-af9c-bee7e51ef494.png"
@@ -326,26 +377,61 @@ export default function Home() {
           <>
             <form onSubmit={handleSubmit} className="space-y-5">
               <div>
-                <label htmlFor="bucket" className="block text-sm font-medium text-zinc-700 dark:text-zinc-300 mb-2">
+                <label className="block text-sm font-medium text-zinc-700 dark:text-zinc-300 mb-2">
                   Bucket
                 </label>
-                <select
-                  id="bucket"
-                  value={selectedBucket}
-                  onChange={(e) => setSelectedBucket(e.target.value)}
-                  disabled={loadingBuckets}
-                  className="select-modern w-full h-12 px-4 rounded-xl border border-zinc-200 dark:border-zinc-600 bg-zinc-50/50 dark:bg-zinc-800/50 text-zinc-900 dark:text-zinc-100 focus:outline-none focus:ring-2 focus:ring-zinc-300 dark:focus:ring-zinc-600 focus:border-transparent disabled:opacity-50 transition-shadow cursor-pointer"
-                >
-                  {loadingBuckets ? (
-                    <option value="">Loading buckets…</option>
-                  ) : buckets.length === 0 ? (
-                    <option value="">No buckets found</option>
-                  ) : (
-                    buckets.map((b) => (
-                      <option key={b} value={b}>{b}</option>
-                    ))
+                <div ref={dropdownRef} className="relative">
+                  <button
+                    type="button"
+                    onClick={() => !loadingBuckets && setDropdownOpen((v) => !v)}
+                    disabled={loadingBuckets}
+                    className="w-full h-12 px-4 rounded-xl border border-zinc-200 dark:border-zinc-600 bg-zinc-50/50 dark:bg-zinc-800/50 text-zinc-900 dark:text-zinc-100 focus:outline-none focus:ring-2 focus:ring-zinc-300 dark:focus:ring-zinc-600 flex items-center justify-between disabled:opacity-50 transition-shadow"
+                  >
+                    <span className="truncate text-sm">
+                      {loadingBuckets ? "Loading buckets…" : selectedBucket || "Select a bucket"}
+                    </span>
+                    <ChevronDown className={`size-4 text-zinc-500 shrink-0 transition-transform ${dropdownOpen ? "rotate-180" : ""}`} />
+                  </button>
+
+                  {dropdownOpen && buckets.length > 0 && (
+                    <div className="absolute z-20 w-full mt-1.5 rounded-xl border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 shadow-xl overflow-y-auto max-h-[252px]">
+                      {buckets.map((b) => (
+                        <div
+                          key={b}
+                          className={`flex items-center justify-between px-4 py-2.5 text-sm cursor-pointer transition-colors ${
+                            b === selectedBucket
+                              ? "bg-zinc-100 dark:bg-zinc-800 font-medium text-zinc-900 dark:text-zinc-100"
+                              : "text-zinc-700 dark:text-zinc-300 hover:bg-zinc-50 dark:hover:bg-zinc-800/60"
+                          }`}
+                        >
+                          <span
+                            className="flex-1 truncate"
+                            onClick={() => { setSelectedBucket(b); setDropdownOpen(false); }}
+                          >
+                            {b}
+                          </span>
+                          <button
+                            type="button"
+                            title={`Delete ${b}`}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setDeleteTarget(b);
+                              setDeleteError(null);
+                              setDeletePassword("");
+                              setDropdownOpen(false);
+                            }}
+                            className="ml-2 p-1 rounded-lg text-zinc-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors shrink-0"
+                          >
+                            <Trash2 className="size-3.5" />
+                          </button>
+                        </div>
+                      ))}
+                      {buckets.length === 0 && (
+                        <p className="px-4 py-3 text-sm text-zinc-500">No buckets found</p>
+                      )}
+                    </div>
                   )}
-                </select>
+                </div>
               </div>
               <div>
                 <label htmlFor="file" className="block text-sm font-medium text-zinc-700 dark:text-zinc-300 mb-2">
@@ -360,10 +446,24 @@ export default function Home() {
                     if (selectedFiles.length > MAX_FILES) {
                       setError(`You can select up to ${MAX_FILES} files only.`);
                       setFiles([]);
+                      setFileNames([]);
+                      return;
+                    }
+                    const oversized = selectedFiles.filter((f) => f.size > MAX_FILE_SIZE);
+                    if (oversized.length > 0) {
+                      const names = oversized.map((f) => f.name).join(", ");
+                      setError(
+                        oversized.length === 1
+                          ? `"${names}" exceeds the 5 MB limit.`
+                          : `These files exceed the 5 MB limit: ${names}`
+                      );
+                      setFiles([]);
+                      setFileNames([]);
                       return;
                     }
                     setError(null);
                     setFiles(selectedFiles);
+                    setFileNames(selectedFiles.map((f) => f.name));
                   }}
                   className="w-full text-sm text-zinc-600 dark:text-zinc-400 file:mr-4 file:py-3 file:px-5 file:rounded-xl file:border-0 file:bg-zinc-200 dark:file:bg-zinc-600 file:text-zinc-800 dark:file:text-zinc-200 file:font-medium file:shadow-sm hover:file:bg-zinc-300 dark:hover:file:bg-zinc-500 file:transition-colors cursor-pointer"
                 />
@@ -371,6 +471,46 @@ export default function Home() {
                   Maximum {MAX_FILES} files per upload.
                 </p>
               </div>
+
+              {files.length > 0 && (
+                <div className="space-y-2">
+                  <p className="text-xs font-medium text-zinc-500 dark:text-zinc-400">
+                    Rename files before uploading
+                  </p>
+                  {files.map((file, i) => {
+                    const { base, ext } = splitFilename(fileNames[i] ?? file.name);
+                    return (
+                      <div
+                        key={i}
+                        className="flex items-center gap-2 rounded-xl border border-zinc-200 dark:border-zinc-700 bg-zinc-50/80 dark:bg-zinc-800/40 px-3 py-2"
+                      >
+                        <input
+                          type="text"
+                          value={base}
+                          onChange={(e) => {
+                            const updated = [...fileNames];
+                            updated[i] = e.target.value + ext;
+                            setFileNames(updated);
+                          }}
+                          className="flex-1 min-w-0 bg-transparent text-sm text-zinc-900 dark:text-zinc-100 focus:outline-none placeholder:text-zinc-400"
+                          placeholder="filename"
+                        />
+                        {ext && (
+                          <span className="text-xs text-zinc-400 dark:text-zinc-500 shrink-0 select-none">
+                            {ext}
+                          </span>
+                        )}
+                        <span className="text-xs text-zinc-400 dark:text-zinc-500 shrink-0 select-none">
+                          {file.size < 1024 * 1024
+                            ? `${(file.size / 1024).toFixed(1)} KB`
+                            : `${(file.size / (1024 * 1024)).toFixed(1)} MB`}
+                        </span>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+
               {error && (
                 <div
                   className={
@@ -426,5 +566,62 @@ export default function Home() {
         )}
       </main>
     </div>
+
+    {deleteTarget && (
+      <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
+        <div className="w-full max-w-sm rounded-2xl border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 shadow-2xl p-6 space-y-4">
+          <div>
+            <h3 className="text-base font-semibold text-zinc-900 dark:text-zinc-100">
+              Delete bucket
+            </h3>
+            <p className="text-sm text-zinc-500 dark:text-zinc-400 mt-1">
+              Enter your password to permanently delete{" "}
+              <span className="font-medium text-zinc-800 dark:text-zinc-200">
+                {deleteTarget}
+              </span>
+              . This cannot be undone.
+            </p>
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-zinc-700 dark:text-zinc-300 mb-1.5">
+              Your password
+            </label>
+            <input
+              type="password"
+              value={deletePassword}
+              onChange={(e) => setDeletePassword(e.target.value)}
+              onKeyDown={(e) => e.key === "Enter" && deletePassword && !deletingBucket && handleDeleteBucket()}
+              autoFocus
+              placeholder="••••••••"
+              className="w-full h-11 px-4 rounded-xl border border-zinc-200 dark:border-zinc-600 bg-zinc-50/50 dark:bg-zinc-800/50 text-zinc-900 dark:text-zinc-100 placeholder:text-zinc-400 focus:outline-none focus:ring-2 focus:ring-red-300 dark:focus:ring-red-700 focus:border-transparent transition-shadow text-sm"
+            />
+          </div>
+          {deleteError && (
+            <div className="rounded-xl bg-red-50 dark:bg-red-900/20 text-red-700 dark:text-red-300 text-sm px-4 py-3 border border-red-100 dark:border-red-800/30">
+              {deleteError}
+            </div>
+          )}
+          <div className="flex gap-3 pt-1">
+            <button
+              type="button"
+              onClick={() => { setDeleteTarget(null); setDeletePassword(""); setDeleteError(null); }}
+              disabled={deletingBucket}
+              className="flex-1 h-10 rounded-xl border border-zinc-200 dark:border-zinc-600 text-sm font-medium text-zinc-700 dark:text-zinc-300 hover:bg-zinc-50 dark:hover:bg-zinc-800 disabled:opacity-50 transition-colors"
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              onClick={handleDeleteBucket}
+              disabled={!deletePassword || deletingBucket}
+              className="flex-1 h-10 rounded-xl bg-red-600 hover:bg-red-700 text-white text-sm font-medium shadow-sm disabled:opacity-50 transition-colors"
+            >
+              {deletingBucket ? "Deleting…" : "Delete bucket"}
+            </button>
+          </div>
+        </div>
+      </div>
+    )}
+    </>
   );
 }

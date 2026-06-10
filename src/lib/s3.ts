@@ -4,10 +4,12 @@ import {
   PutObjectCommand,
   GetObjectCommand,
   CreateBucketCommand,
+  DeleteBucketCommand,
+  type BucketLocationConstraint,
+  type CreateBucketCommandInput,
   PutPublicAccessBlockCommand,
   PutBucketPolicyCommand,
   PutBucketCorsCommand,
-  type BucketLocationConstraint,
 } from "@aws-sdk/client-s3";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 
@@ -60,11 +62,13 @@ export async function createBucket(
     );
   }
 
-  const createParams: { Bucket: string; CreateBucketConfiguration?: { LocationConstraint: BucketLocationConstraint } } = {
+  const createParams: CreateBucketCommandInput = {
     Bucket: name,
   };
   if (region !== "us-east-1") {
-    createParams.CreateBucketConfiguration = { LocationConstraint: region as BucketLocationConstraint };
+    createParams.CreateBucketConfiguration = {
+      LocationConstraint: region as BucketLocationConstraint,
+    };
   }
   await client.send(new CreateBucketCommand(createParams));
 
@@ -117,6 +121,11 @@ export async function createBucket(
       })
     );
   }
+}
+
+export async function deleteBucket(bucketName: string): Promise<void> {
+  const { client } = getS3Client();
+  await client.send(new DeleteBucketCommand({ Bucket: bucketName }));
 }
 
 export async function uploadFileAndGetUrl(

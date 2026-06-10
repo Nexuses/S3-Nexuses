@@ -38,9 +38,34 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    const MAX_FILE_SIZE = 5 * 1024 * 1024;
+    const oversized = files.filter((f) => f.size > MAX_FILE_SIZE);
+    if (oversized.length > 0) {
+      const names = oversized.map((f) => f.name).join(", ");
+      return NextResponse.json(
+        {
+          error:
+            oversized.length === 1
+              ? `"${names}" exceeds the 5 MB file size limit.`
+              : `These files exceed the 5 MB limit: ${names}`,
+        },
+        { status: 400 }
+      );
+    }
+
+    const fileNamesParam = formData.getAll("fileNames") as string[];
+
     const uploadedFiles = await Promise.all(
-      files.map(async (file) => {
-        const key = file.name.replace(/[^a-zA-Z0-9._-]/g, "_");
+      files.map(async (file, idx) => {
+        const rawName = (fileNamesParam[idx] || file.name).trim() || file.name;
+        const safe = rawName.replace(/[^a-zA-Z0-9._-]/g, "_");
+        const lastDot = safe.lastIndexOf(".");
+        const timestamp = Date.now();
+        const random = Math.random().toString(36).slice(2, 6);
+        const key =
+          lastDot > 0
+            ? `${safe.slice(0, lastDot)}_${timestamp}_${random}${safe.slice(lastDot)}`
+            : `${safe}_${timestamp}_${random}`;
         const buffer = Buffer.from(await file.arrayBuffer());
         const contentType = file.type || undefined;
         const { objectUrl, presignedUrl } = await uploadFileAndGetUrl(

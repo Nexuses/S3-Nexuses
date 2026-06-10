@@ -12,6 +12,7 @@
     "@aws-sdk/client-s3": "^3.981.0",
     "@aws-sdk/s3-request-presigner": "^3.981.0",
     "bcrypt": "^6.0.0",
+    "lucide-react": "^1.17.0",
     "mongodb": "^7.0.0",
     "mongoose": "^9.1.5",
     "next": "16.1.6",
