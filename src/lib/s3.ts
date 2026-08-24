@@ -12,6 +12,7 @@ import {
   PutBucketCorsCommand,
 } from "@aws-sdk/client-s3";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
+import { buildPublicObjectUrl } from "@/lib/cdn";
 
 export const CREDENTIALS_ERROR =
   "AWS credentials not configured. Create a .env.local file in the project root with AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, and optionally AWS_REGION, then restart the dev server (npm run dev).";
@@ -133,7 +134,7 @@ export async function uploadFileAndGetUrl(
   key: string,
   body: Buffer,
   contentType?: string
-): Promise<{ objectUrl: string; presignedUrl?: string }> {
+): Promise<{ objectUrl: string; presignedUrl?: string; cdnDomain?: string | null }> {
   const { client, region } = getS3Client();
   await client.send(
     new PutObjectCommand({
@@ -144,7 +145,7 @@ export async function uploadFileAndGetUrl(
     })
   );
 
-  const objectUrl = `https://${bucket}.s3.${region}.amazonaws.com/${key}`;
+  const { objectUrl, cdnDomain } = await buildPublicObjectUrl(bucket, key, region);
 
   const presignedUrl = await getSignedUrl(
     client,
@@ -152,5 +153,5 @@ export async function uploadFileAndGetUrl(
     { expiresIn: 3600 }
   );
 
-  return { objectUrl, presignedUrl };
+  return { objectUrl, presignedUrl, cdnDomain };
 }

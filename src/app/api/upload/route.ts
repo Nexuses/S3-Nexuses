@@ -68,13 +68,13 @@ export async function POST(request: NextRequest) {
             : `${safe}_${timestamp}_${random}`;
         const buffer = Buffer.from(await file.arrayBuffer());
         const contentType = file.type || undefined;
-        const { objectUrl, presignedUrl } = await uploadFileAndGetUrl(
+        const { objectUrl, presignedUrl, cdnDomain } = await uploadFileAndGetUrl(
           bucket.trim(),
           key,
           buffer,
           contentType
         );
-        return { key, objectUrl, presignedUrl };
+        return { key, objectUrl, presignedUrl, cdnDomain };
       })
     );
 

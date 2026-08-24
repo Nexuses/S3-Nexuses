@@ -27,10 +27,16 @@ export default function Home() {
   const [error, setError] = useState<string | null>(null);
   const [credentialsMissing, setCredentialsMissing] = useState(false);
   const [newBucketName, setNewBucketName] = useState("");
+  const [newCdnDomain, setNewCdnDomain] = useState("");
   const [makePublic, setMakePublic] = useState(false);
   const [addCors, setAddCors] = useState(false);
   const [creatingBucket, setCreatingBucket] = useState(false);
   const [createSuccess, setCreateSuccess] = useState<string | null>(null);
+  const [cdnMap, setCdnMap] = useState<Record<string, string>>({});
+  const [cdnBucket, setCdnBucket] = useState("");
+  const [cdnDomainEdit, setCdnDomainEdit] = useState("");
+  const [savingCdn, setSavingCdn] = useState(false);
+  const [cdnSuccess, setCdnSuccess] = useState<string | null>(null);
 
   const [authEmail, setAuthEmail] = useState("");
   const [authPassword, setAuthPassword] = useState("");
@@ -59,6 +65,7 @@ export default function Home() {
         }
         setCredentialsMissing(false);
         setBuckets(data.buckets ?? []);
+        setCdnMap(data.cdnMap ?? {});
         if (data.buckets?.length) {
           if (selectBucket && data.buckets.includes(selectBucket)) {
             setSelectedBucket(selectBucket);
@@ -70,7 +77,7 @@ export default function Home() {
   }
 
   useEffect(() => {
-    if (status !== "authenticated" || isAdmin) return;
+    if (status !== "authenticated") return;
     setLoadingBuckets(true);
     refreshBuckets()
       .catch((err) => setError(err.message ?? "Failed to load buckets"))
@@ -90,6 +97,7 @@ export default function Home() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           name: newBucketName.trim(),
+          cdnDomain: newCdnDomain.trim(),
           makePublic,
           addCors,
         }),
@@ -102,13 +110,45 @@ export default function Home() {
       }
       setCreateSuccess(data.bucket);
       setNewBucketName("");
+      setNewCdnDomain("");
       setMakePublic(false);
       setAddCors(false);
+      if (data.cdnMap) setCdnMap(data.cdnMap);
       await refreshBuckets(data.bucket);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to create bucket");
     } finally {
       setCreatingBucket(false);
+    }
+  }
+
+  async function handleSaveCdn(e: React.FormEvent) {
+    e.preventDefault();
+    if (!cdnBucket.trim()) return;
+    setError(null);
+    setCdnSuccess(null);
+    setSavingCdn(true);
+    try {
+      const res = await fetch("/api/buckets", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          bucket: cdnBucket.trim(),
+          cdnDomain: cdnDomainEdit.trim(),
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error ?? "Failed to save CDN domain");
+      setCdnSuccess(
+        data.cdnDomain
+          ? `CDN for “${data.bucket}” set to ${data.cdnDomain}`
+          : `CDN cleared for “${data.bucket}”`
+      );
+      await refreshBuckets();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to save CDN domain");
+    } finally {
+      setSavingCdn(false);
     }
   }
 
@@ -311,65 +351,139 @@ export default function Home() {
 
         <p className="text-zinc-500 dark:text-zinc-400 text-sm mb-6">
           {isAdmin
-            ? "Create new buckets below. Only users can upload files."
-            : "Select a bucket, choose one or more files, and get object URLs."}
+            ? "Create buckets and map each one to its CloudFront CDN domain. Users get CDN URLs on upload."
+            : "Select a bucket, choose one or more files, and get CDN / object URLs."}
         </p>
 
         {isAdmin && (
-          <div className="mb-6 p-5 rounded-2xl border border-zinc-200 dark:border-zinc-700 bg-zinc-50/80 dark:bg-zinc-800/40 space-y-4">
-            <h2 className="text-sm font-semibold text-zinc-800 dark:text-zinc-200">
-              Add new bucket
-            </h2>
-            <form onSubmit={handleCreateBucket} className="space-y-4">
-              <div>
-                <label htmlFor="new-bucket" className="block text-sm font-medium text-zinc-700 dark:text-zinc-300 mb-2">
-                  Bucket name
-                </label>
-                <input
-                  id="new-bucket"
-                  type="text"
-                  value={newBucketName}
-                  onChange={(e) => setNewBucketName(e.target.value)}
-                  placeholder="my-unique-bucket-name"
-                  className="w-full h-11 px-4 rounded-xl border border-zinc-200 dark:border-zinc-600 bg-white dark:bg-zinc-800/50 text-zinc-900 dark:text-zinc-100 text-sm placeholder:text-zinc-400 focus:outline-none focus:ring-2 focus:ring-zinc-300 dark:focus:ring-zinc-600 focus:border-transparent transition-shadow"
-                />
-                <p className="text-xs text-zinc-500 dark:text-zinc-400 mt-1.5">
-                  3–63 chars, lowercase letters, numbers, hyphens only
-                </p>
-              </div>
-              <div className="flex flex-wrap gap-5">
-                <label className="flex items-center gap-2.5 cursor-pointer">
+          <div className="mb-6 space-y-4">
+            <div className="p-5 rounded-2xl border border-zinc-200 dark:border-zinc-700 bg-zinc-50/80 dark:bg-zinc-800/40 space-y-4">
+              <h2 className="text-sm font-semibold text-zinc-800 dark:text-zinc-200">
+                Add new bucket
+              </h2>
+              <form onSubmit={handleCreateBucket} className="space-y-4">
+                <div>
+                  <label htmlFor="new-bucket" className="block text-sm font-medium text-zinc-700 dark:text-zinc-300 mb-2">
+                    Bucket name
+                  </label>
                   <input
-                    type="checkbox"
-                    checked={makePublic}
-                    onChange={(e) => setMakePublic(e.target.checked)}
-                    className="rounded border-zinc-300 dark:border-zinc-600 text-zinc-900 focus:ring-zinc-400 size-4"
+                    id="new-bucket"
+                    type="text"
+                    value={newBucketName}
+                    onChange={(e) => setNewBucketName(e.target.value)}
+                    placeholder="my-unique-bucket-name"
+                    className="w-full h-11 px-4 rounded-xl border border-zinc-200 dark:border-zinc-600 bg-white dark:bg-zinc-800/50 text-zinc-900 dark:text-zinc-100 text-sm placeholder:text-zinc-400 focus:outline-none focus:ring-2 focus:ring-zinc-300 dark:focus:ring-zinc-600 focus:border-transparent transition-shadow"
                   />
-                  <span className="text-sm text-zinc-700 dark:text-zinc-300">Make bucket public</span>
-                </label>
-                <label className="flex items-center gap-2.5 cursor-pointer">
+                  <p className="text-xs text-zinc-500 dark:text-zinc-400 mt-1.5">
+                    3–63 chars, lowercase letters, numbers, hyphens only
+                  </p>
+                </div>
+                <div>
+                  <label htmlFor="new-cdn" className="block text-sm font-medium text-zinc-700 dark:text-zinc-300 mb-2">
+                    CDN domain <span className="font-normal text-zinc-400">(optional)</span>
+                  </label>
                   <input
-                    type="checkbox"
-                    checked={addCors}
-                    onChange={(e) => setAddCors(e.target.checked)}
-                    className="rounded border-zinc-300 dark:border-zinc-600 text-zinc-900 focus:ring-zinc-400 size-4"
+                    id="new-cdn"
+                    type="text"
+                    value={newCdnDomain}
+                    onChange={(e) => setNewCdnDomain(e.target.value)}
+                    placeholder="assets.6clicks.co"
+                    className="w-full h-11 px-4 rounded-xl border border-zinc-200 dark:border-zinc-600 bg-white dark:bg-zinc-800/50 text-zinc-900 dark:text-zinc-100 text-sm placeholder:text-zinc-400 focus:outline-none focus:ring-2 focus:ring-zinc-300 dark:focus:ring-zinc-600 focus:border-transparent transition-shadow"
                   />
-                  <span className="text-sm text-zinc-700 dark:text-zinc-300">Add CORS</span>
-                </label>
-              </div>
-              <button
-                type="submit"
-                disabled={creatingBucket || !newBucketName.trim() || loadingBuckets}
-                className="h-11 px-5 rounded-xl bg-zinc-900 dark:bg-zinc-100 text-white dark:text-zinc-900 font-medium hover:bg-zinc-800 dark:hover:bg-zinc-200 shadow-lg shadow-zinc-900/10 disabled:opacity-50 transition-all duration-200"
-              >
-                {creatingBucket ? "Creating…" : "Create bucket"}
-              </button>
-              {createSuccess && (
-                <p className="text-sm text-emerald-600 dark:text-emerald-400 font-medium">
-                  Bucket “{createSuccess}” created and selected.
-                </p>
-              )}
-            </form>
+                  <p className="text-xs text-zinc-500 dark:text-zinc-400 mt-1.5">
+                    Uploads will return https://this-domain/filename
+                  </p>
+                </div>
+                <div className="flex flex-wrap gap-5">
+                  <label className="flex items-center gap-2.5 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={makePublic}
+                      onChange={(e) => setMakePublic(e.target.checked)}
+                      className="rounded border-zinc-300 dark:border-zinc-600 text-zinc-900 focus:ring-zinc-400 size-4"
+                    />
+                    <span className="text-sm text-zinc-700 dark:text-zinc-300">Make bucket public</span>
+                  </label>
+                  <label className="flex items-center gap-2.5 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={addCors}
+                      onChange={(e) => setAddCors(e.target.checked)}
+                      className="rounded border-zinc-300 dark:border-zinc-600 text-zinc-900 focus:ring-zinc-400 size-4"
+                    />
+                    <span className="text-sm text-zinc-700 dark:text-zinc-300">Add CORS</span>
+                  </label>
+                </div>
+                <button
+                  type="submit"
+                  disabled={creatingBucket || !newBucketName.trim() || loadingBuckets}
+                  className="h-11 px-5 rounded-xl bg-zinc-900 dark:bg-zinc-100 text-white dark:text-zinc-900 font-medium hover:bg-zinc-800 dark:hover:bg-zinc-200 shadow-lg shadow-zinc-900/10 disabled:opacity-50 transition-all duration-200"
+                >
+                  {creatingBucket ? "Creating…" : "Create bucket"}
+                </button>
+                {createSuccess && (
+                  <p className="text-sm text-emerald-600 dark:text-emerald-400 font-medium">
+                    Bucket “{createSuccess}” created and selected.
+                  </p>
+                )}
+              </form>
+            </div>
+
+            <div className="p-5 rounded-2xl border border-zinc-200 dark:border-zinc-700 bg-zinc-50/80 dark:bg-zinc-800/40 space-y-4">
+              <h2 className="text-sm font-semibold text-zinc-800 dark:text-zinc-200">
+                Set CDN domain for existing bucket
+              </h2>
+              <form onSubmit={handleSaveCdn} className="space-y-4">
+                <div>
+                  <label className="block text-sm font-medium text-zinc-700 dark:text-zinc-300 mb-2">
+                    Bucket
+                  </label>
+                  <select
+                    value={cdnBucket}
+                    onChange={(e) => {
+                      const b = e.target.value;
+                      setCdnBucket(b);
+                      setCdnDomainEdit(cdnMap[b] ?? "");
+                      setCdnSuccess(null);
+                    }}
+                    disabled={loadingBuckets || buckets.length === 0}
+                    className="w-full h-11 px-4 rounded-xl border border-zinc-200 dark:border-zinc-600 bg-white dark:bg-zinc-800/50 text-zinc-900 dark:text-zinc-100 text-sm focus:outline-none focus:ring-2 focus:ring-zinc-300 dark:focus:ring-zinc-600"
+                  >
+                    <option value="">Select bucket…</option>
+                    {buckets.map((b) => (
+                      <option key={b} value={b}>
+                        {b}{cdnMap[b] ? ` → ${cdnMap[b]}` : ""}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-zinc-700 dark:text-zinc-300 mb-2">
+                    CDN domain
+                  </label>
+                  <input
+                    type="text"
+                    value={cdnDomainEdit}
+                    onChange={(e) => setCdnDomainEdit(e.target.value)}
+                    placeholder="assets.6clicks.co"
+                    disabled={!cdnBucket}
+                    className="w-full h-11 px-4 rounded-xl border border-zinc-200 dark:border-zinc-600 bg-white dark:bg-zinc-800/50 text-zinc-900 dark:text-zinc-100 text-sm placeholder:text-zinc-400 focus:outline-none focus:ring-2 focus:ring-zinc-300 dark:focus:ring-zinc-600 disabled:opacity-50"
+                  />
+                </div>
+                <button
+                  type="submit"
+                  disabled={savingCdn || !cdnBucket}
+                  className="h-11 px-5 rounded-xl bg-zinc-900 dark:bg-zinc-100 text-white dark:text-zinc-900 font-medium hover:bg-zinc-800 dark:hover:bg-zinc-200 shadow-lg shadow-zinc-900/10 disabled:opacity-50 transition-all duration-200"
+                >
+                  {savingCdn ? "Saving…" : "Save CDN domain"}
+                </button>
+                {cdnSuccess && (
+                  <p className="text-sm text-emerald-600 dark:text-emerald-400 font-medium">
+                    {cdnSuccess}
+                  </p>
+                )}
+              </form>
+            </div>
           </div>
         )}
 
@@ -409,6 +523,11 @@ export default function Home() {
                             onClick={() => { setSelectedBucket(b); setDropdownOpen(false); }}
                           >
                             {b}
+                            {cdnMap[b] && (
+                              <span className="ml-2 text-xs text-zinc-400 font-normal">
+                                → {cdnMap[b]}
+                              </span>
+                            )}
                           </span>
                           <button
                             type="button"
