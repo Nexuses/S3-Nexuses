@@ -5,11 +5,14 @@ function digest(value: string): Buffer {
   return createHash("sha256").update(value).digest();
 }
 
-/** Returns an error response when the bearer token is missing or wrong. */
-export function rejectUnauthorizedGptRequest(request: NextRequest): NextResponse | null {
-  const expected = process.env.GPT_UPLOAD_API_KEY?.trim();
+function rejectUnauthorizedBearerRequest(
+  request: NextRequest,
+  envVar: string,
+  notConfiguredMessage: string
+): NextResponse | null {
+  const expected = process.env[envVar]?.trim();
   if (!expected) {
-    return NextResponse.json({ error: "GPT upload is not configured" }, { status: 503 });
+    return NextResponse.json({ error: notConfiguredMessage }, { status: 503 });
   }
 
   const header = request.headers.get("authorization") ?? "";
@@ -21,4 +24,22 @@ export function rejectUnauthorizedGptRequest(request: NextRequest): NextResponse
   }
 
   return null;
+}
+
+/** Returns an error response when the bearer token is missing or wrong. */
+export function rejectUnauthorizedGptRequest(request: NextRequest): NextResponse | null {
+  return rejectUnauthorizedBearerRequest(
+    request,
+    "GPT_UPLOAD_API_KEY",
+    "GPT upload is not configured"
+  );
+}
+
+/** Returns an error response when the Claude MCP bearer token is missing or wrong. */
+export function rejectUnauthorizedClaudeRequest(request: NextRequest): NextResponse | null {
+  return rejectUnauthorizedBearerRequest(
+    request,
+    "CLAUDE_MCP_API_KEY",
+    "Claude MCP is not configured"
+  );
 }

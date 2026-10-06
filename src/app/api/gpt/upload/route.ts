@@ -1,28 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
 import { CREDENTIALS_ERROR, listBuckets, uploadFileAndGetUrl } from "@/lib/s3";
 import { rejectUnauthorizedGptRequest } from "@/lib/gpt-auth";
+import { dateFolder, sanitizeFilename } from "@/lib/upload-key";
 
 export const dynamic = "force-dynamic";
 
 const MAX_FILE_SIZE = 20 * 1024 * 1024;
-
-function sanitizeFilename(name: string): string {
-  const base = name.split(/[/\\]/).pop() ?? "file";
-  const cleaned = base
-    .replace(/\.\./g, "")
-    .replace(/[^a-zA-Z0-9._-]/g, "_")
-    .replace(/_+/g, "_")
-    .replace(/^[._-]+|[._-]+$/g, "")
-    .slice(0, 180);
-  return cleaned || "file";
-}
-
-function dateFolder(now: Date): string {
-  const year = now.getUTCFullYear();
-  const month = String(now.getUTCMonth() + 1).padStart(2, "0");
-  const day = String(now.getUTCDate()).padStart(2, "0");
-  return `${year}-${month}-${day}`;
-}
 
 export async function POST(request: NextRequest) {
   const unauthorized = rejectUnauthorizedGptRequest(request);

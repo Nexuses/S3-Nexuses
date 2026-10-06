@@ -12,14 +12,17 @@
     "@aws-sdk/client-cloudfront": "^3.1116.0",
     "@aws-sdk/client-s3": "^3.981.0",
     "@aws-sdk/s3-request-presigner": "^3.981.0",
+    "@modelcontextprotocol/sdk": "1.26.0",
     "bcrypt": "^6.0.0",
     "lucide-react": "^1.17.0",
+    "mcp-handler": "^1.1.0",
     "mongodb": "^7.0.0",
     "mongoose": "^9.1.5",
     "next": "16.1.6",
     "next-auth": "^4.24.13",
     "react": "19.2.3",
-    "react-dom": "19.2.3"
+    "react-dom": "19.2.3",
+    "zod": "^4.6.5"
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4",
